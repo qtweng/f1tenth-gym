@@ -36,9 +36,11 @@ from f110_gym.envs.base_classes import Simulator
 import numpy as np
 import os
 import time
+from numpy.lib.utils import info
 
 # gl
 import pyglet
+from stable_baselines3.common.utils import obs_as_tensor
 pyglet.options['debug_gl'] = False
 from pyglet import gl
 
@@ -49,6 +51,68 @@ VIDEO_W = 600
 VIDEO_H = 400
 WINDOW_W = 1000
 WINDOW_H = 800
+
+class FTG:
+    def preprocess_lidar(self, ranges):
+        """ Any preprocessing of the LiDAR data can be done in this function.
+            Possible Improvements: smoothing of outliers in the data and placing
+            a cap on the maximum distance a point can be.
+        """
+        # remove quadrant of LiDAR directly behind us
+        eighth = int(len(ranges)/8)
+        return np.array(ranges[eighth:-eighth])
+
+    def get_angle(self, range_index, range_len):
+        """ Calculate the angle that corresponds to a given LiDAR point and
+            process it into a steering angle.
+            Possible improvements: smoothing of aggressive steering angles
+        """
+        lidar_angle = (range_index - (range_len/2)) * self.radians_per_point
+        steering_angle = np.clip(lidar_angle, np.radians(-90), np.radians(90))
+        return steering_angle
+
+    def process_lidar(self, ranges):
+        """ Run the disparity extender algorithm!
+            Possible improvements: varying the speed based on the
+            steering angle or the distance to the farthest point.
+        """
+        self.radians_per_point = (2*np.pi)/len(ranges)
+        proc_ranges = self.preprocess_lidar(ranges)
+        # obstacle correction
+
+        i = 0
+        value = 0
+        adj = 0
+        # scan both left to right and right to left
+        while i < len(proc_ranges) - 2:
+            if i >= len(proc_ranges) - 2:
+                break
+            if adj > 0:
+                proc_ranges[i] = value
+                adj -= 1
+            # check edge from small to large and extend
+            elif (proc_ranges[i + 1] - proc_ranges[i]) > 1:
+                # extend more if the distance is smaller 
+                adj = int(150 /  (proc_ranges[i] + 1))
+                value = proc_ranges[i]
+            i += 1
+        i = len(proc_ranges) - 1
+        while i > 1:
+            if i <= 1:
+                break
+            if adj > 0:
+                proc_ranges[i] = value
+                adj -= 1
+            # check edge from small to large and extend
+            elif (proc_ranges[i - 1] - proc_ranges[i]) > 1:
+                # extend more if the distance is smaller 
+                adj = int(150 / (proc_ranges[i] + 1))
+                value = proc_ranges[i]
+            i -= 1
+        steering_angle = self.get_angle(proc_ranges.argmax(), len(proc_ranges)) / 2
+        speed = 1.3 + (0.5 * proc_ranges[proc_ranges.argmax()])
+        return speed, steering_angle
+
 
 class F110Env(gym.Env, utils.EzPickle):
     """
@@ -92,30 +156,39 @@ class F110Env(gym.Env, utils.EzPickle):
     """
     metadata = {'render.modes': ['human', 'human_fast']}
 
-    def __init__(self, **kwargs):        
+    def __init__(self, map_path, map_ext, num_drivers, **kwargs):        
         # kwargs extraction
+        self.action_space = spaces.Box(-10 * np.ones(1), 10 * np.ones(1))
+        self.observation_space = spaces.Box(-100 * np.ones(1083), 100 * np.ones(1083))
+
+        self.reward_range = (-np.inf, np.inf)
         try:
             self.seed = kwargs['seed']
         except:
             self.seed = 12345
-        try:
-            self.map_name = kwargs['map']
-            # different default maps
-            if self.map_name == 'berlin':
-                self.map_path = os.path.dirname(os.path.abspath(__file__)) + '/maps/berlin.yaml'
-            elif self.map_name == 'skirk':
-                self.map_path = os.path.dirname(os.path.abspath(__file__)) + '/maps/skirk.yaml'
-            elif self.map_name == 'levine':
-                self.map_path = os.path.dirname(os.path.abspath(__file__)) + '/maps/levine.yaml'
-            else:
-                self.map_path = self.map_name + '.yaml'
-        except:
-            self.map_path = os.path.dirname(os.path.abspath(__file__)) + '/maps/vegas.yaml'
+        self.map_name = map_path.split('/')[-1]
+        self.map_path = map_path
+        self.map_ext = map_ext
+        self.ftg = FTG()
+        self.last_obs = None
+        # try:
+        #     self.map_name = kwargs['map']
+        #     # different default maps
+        #     if self.map_name == 'berlin':
+        #         self.map_path = os.path.dirname(os.path.abspath(__file__)) + '/maps/berlin.yaml'
+        #     elif self.map_name == 'skirk':
+        #         self.map_path = os.path.dirname(os.path.abspath(__file__)) + '/maps/skirk.yaml'
+        #     elif self.map_name == 'levine':
+        #         self.map_path = os.path.dirname(os.path.abspath(__file__)) + '/maps/levine.yaml'
+        #     else:
+        #         self.map_path = self.map_name + '.yaml'
+        # except:
+        #     self.map_path = os.path.dirname(os.path.abspath(__file__)) + '/maps/vegas.yaml'
 
-        try:
-            self.map_ext = kwargs['map_ext']
-        except:
-            self.map_ext = '.png'
+        # try:
+        #     self.map_ext = kwargs['map_ext']
+        # except:
+        #     self.map_ext = '.png'
 
         try:
             self.params = kwargs['params']
@@ -123,10 +196,11 @@ class F110Env(gym.Env, utils.EzPickle):
             self.params = {'mu': 1.0489, 'C_Sf': 4.718, 'C_Sr': 5.4562, 'lf': 0.15875, 'lr': 0.17145, 'h': 0.074, 'm': 3.74, 'I': 0.04712, 's_min': -0.4189, 's_max': 0.4189, 'sv_min': -3.2, 'sv_max': 3.2, 'v_switch': 7.319, 'a_max': 9.51, 'v_min':-5.0, 'v_max': 20.0, 'width': 0.31, 'length': 0.58}
 
         # simulation parameters
-        try:
-            self.num_agents = kwargs['num_agents']
-        except:
-            self.num_agents = 2
+        # try:
+        #     self.num_agents = kwargs['num_agents']
+        # except:
+        #     self.num_agents = 2
+        self.num_agents = num_drivers
 
         try:
             self.timestep = kwargs['timestep']
@@ -171,7 +245,8 @@ class F110Env(gym.Env, utils.EzPickle):
 
         # initiate stuff
         self.sim = Simulator(self.params, self.num_agents, self.seed)
-        self.sim.set_map(self.map_path, self.map_ext)
+        print(self.map_path + '.yaml', self.map_ext)
+        self.sim.set_map(self.map_path + '.yaml', self.map_ext)
 
         # rendering
         self.renderer = None
@@ -237,12 +312,12 @@ class F110Env(gym.Env, utils.EzPickle):
         Returns:
             None
         """
-        self.poses_x = obs_dict['poses_x']
-        self.poses_y = obs_dict['poses_y']
-        self.poses_theta = obs_dict['poses_theta']
-        self.collisions = obs_dict['collisions']
+        # self.poses_x = obs_dict['poses_x']
+        # self.poses_y = obs_dict['poses_y']
+        # self.poses_theta = obs_dict['poses_theta']
+        # self.collisions = obs_dict['collisions']
 
-    def step(self, action):
+    def step(self, action_speed):
         """
         Step function for the gym env
 
@@ -255,12 +330,18 @@ class F110Env(gym.Env, utils.EzPickle):
             done (bool): if the simulation is done
             info (dict): auxillary information dictionary
         """
-        
+        steering = self.ftg.process_lidar(self.last_obs)
+        print(steering)
+        action = [steering[1], action_speed[0]]
+        print(action)
         # call simulation step
-        obs = self.sim.step(action)
-        obs['lap_times'] = self.lap_times
-        obs['lap_counts'] = self.lap_counts
-
+        # TODO: normalize inputs
+        raw_obs = self.sim.step([action])
+        args = (np.array(raw_obs['scans'][0]), np.array([raw_obs['linear_vels_x'][0]]), np.array([raw_obs['linear_vels_y'][0]]), np.array([raw_obs['ang_vels_z'][0]]))
+        obs = np.concatenate(args).flatten()
+        # obs['lap_times'] = self.lap_times
+        # obs['lap_counts'] = self.lap_counts
+        
         self.current_obs = obs
 
         # times
@@ -268,15 +349,15 @@ class F110Env(gym.Env, utils.EzPickle):
         self.current_time = self.current_time + self.timestep
         
         # update data member
-        self._update_state(obs)
+        # self._update_state(obs)
 
         # check done
         done, toggle_list = self._check_done()
         info = {'checkpoint_done': toggle_list}
-
+        self.last_obs = obs
         return obs, reward, done, info
 
-    def reset(self, poses):
+    def reset(self):
         """
         Reset the gym environment by given poses
 
@@ -289,6 +370,8 @@ class F110Env(gym.Env, utils.EzPickle):
             done (bool): if the simulation is done
             info (dict): auxillary information dictionary
         """
+        print("resetting")
+        poses = np.array([[0. , 0. , np.radians(60)]])
         # reset counters and data members
         self.current_time = 0.0
         self.collisions = np.zeros((self.num_agents, ))
@@ -308,8 +391,16 @@ class F110Env(gym.Env, utils.EzPickle):
 
         # get no input observations
         action = np.zeros((self.num_agents, 2))
-        obs, reward, done, info = self.step(action)
-        return obs, reward, done, info
+        # obs, reward, done, info = self.step(action)
+        raw_obs = self.sim.step(np.array([[0. ,0. ]]))
+        args = (np.array(raw_obs['scans'][0]), np.array([raw_obs['linear_vels_x'][0]]), np.array([raw_obs['linear_vels_y'][0]]), np.array([raw_obs['ang_vels_z'][0]]))
+        obs = np.concatenate(args).flatten()
+        self.last_obs = obs
+        print(obs)
+        reward = 0
+        done = False
+        info = {}
+        return obs
 
     def update_map(self, map_path, map_ext):
         """
@@ -354,7 +445,7 @@ class F110Env(gym.Env, utils.EzPickle):
             # first call, initialize everything
             from f110_gym.envs.rendering import EnvRenderer
             self.renderer = EnvRenderer(WINDOW_W, WINDOW_H)
-            self.renderer.update_map(self.map_name, self.map_ext)
+            self.renderer.update_map(self.map_path, self.map_ext)
         self.renderer.update_obs(self.current_obs)
         self.renderer.dispatch_events()
         self.renderer.on_draw()

@@ -34,6 +34,7 @@ from numba import njit
 from f110_gym.envs.dynamic_models import vehicle_dynamics_st, pid
 from f110_gym.envs.laser_models import ScanSimulator2D, check_ttc_jit, ray_cast
 from f110_gym.envs.collision_models import get_vertices, collision_multiple
+from numpy.ma.core import concatenate
 
 class RaceCar(object):
     """
@@ -442,6 +443,8 @@ class Simulator(object):
         
         # looping over agents
         for i, agent in enumerate(self.agents):
+            print(control_inputs[0][0])
+            print(control_inputs[0][1])
             # update each agent's pose
             agent.update_pose(control_inputs[i, 0], control_inputs[i, 1])
 
