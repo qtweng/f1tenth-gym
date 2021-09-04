@@ -23,7 +23,8 @@ class GapFollower:
         # we won't use the LiDAR data from directly behind us
         proc_ranges = np.array(ranges[135:-135])
         # sets each value to the mean over a given window
-        proc_ranges = np.convolve(proc_ranges, np.ones(self.PREPROCESS_CONV_SIZE), 'same') / self.PREPROCESS_CONV_SIZE
+        proc_ranges = np.convolve(proc_ranges, np.ones(
+            self.PREPROCESS_CONV_SIZE), 'same') / self.PREPROCESS_CONV_SIZE
         proc_ranges = np.clip(proc_ranges, 0, self.MAX_LIDAR_DIST)
         return proc_ranges
 
@@ -90,7 +91,8 @@ class GapFollower:
             speed = self.CORNERS_SPEED
         else:
             speed = self.STRAIGHTS_SPEED
-        print('Steering angle in degrees: {}'.format((steering_angle / (np.pi / 2)) * 90))
+        print('Steering angle in degrees: {}'.format(
+            (steering_angle / (np.pi / 2)) * 90))
         return speed, steering_angle
 
 
@@ -115,22 +117,22 @@ class AnotherDriver:
         NUM_PER_QUADRANT = NUM_RANGES // 4
 
         # the index of the furthest LiDAR point (ignoring the points behind the car)
-        max_idx = np.argmax(ranges[NUM_PER_QUADRANT:-NUM_PER_QUADRANT]) + NUM_PER_QUADRANT
+        max_idx = np.argmax(
+            ranges[NUM_PER_QUADRANT:-NUM_PER_QUADRANT]) + NUM_PER_QUADRANT
         # some math to get the steering angle to correspond to the chosen LiDAR point
-        steering_angle = max_idx * ANGLE_BETWEEN - (NUM_RANGES // 2) * ANGLE_BETWEEN
+        steering_angle = max_idx * ANGLE_BETWEEN - \
+            (NUM_RANGES // 2) * ANGLE_BETWEEN
         speed = 5.0
 
         return speed, steering_angle
 
-import numpy as np
-
 
 class DisparityExtender:
-    
+
     CAR_WIDTH = 0.31
     # the min difference between adjacent LiDAR points for us to call them disparate
     DIFFERENCE_THRESHOLD = 2.
-    SPEED = 5. 
+    SPEED = 5.
     # the extra safety room we plan for along walls (as a percentage of car_width/2)
     SAFETY_PERCENTAGE = 300.
 
@@ -142,18 +144,17 @@ class DisparityExtender:
         # remove quadrant of LiDAR directly behind us
         eighth = int(len(ranges)/8)
         return np.array(ranges[eighth:-eighth])
-    
-     
+
     def get_differences(self, ranges):
         """ Gets the absolute difference between adjacent elements in
             in the LiDAR data and returns them in an array.
             Possible Improvements: replace for loop with numpy array arithmetic
         """
-        differences = [0.] # set first element to 0
+        differences = [0.]  # set first element to 0
         for i in range(1, len(ranges)):
             differences.append(abs(ranges[i]-ranges[i-1]))
         return differences
-    
+
     def get_disparities(self, differences, threshold):
         """ Gets the indexes of the LiDAR points that were greatly
             different to their adjacent point.
@@ -229,7 +230,7 @@ class DisparityExtender:
             ranges = self.cover_points(num_points_to_cover, close_idx,
                 cover_right, ranges)
         return ranges
-            
+
     def get_steering_angle(self, range_index, range_len):
         """ Calculate the angle that corresponds to a given LiDAR point and
             process it into a steering angle.
@@ -247,10 +248,134 @@ class DisparityExtender:
         self.radians_per_point = (2*np.pi)/len(ranges)
         proc_ranges = self.preprocess_lidar(ranges)
         differences = self.get_differences(proc_ranges)
-        disparities = self.get_disparities(differences, self.DIFFERENCE_THRESHOLD)
+        disparities = self.get_disparities(
+            differences, self.DIFFERENCE_THRESHOLD)
         proc_ranges = self.extend_disparities(disparities, proc_ranges,
                 self.CAR_WIDTH, self.SAFETY_PERCENTAGE)
         steering_angle = self.get_steering_angle(proc_ranges.argmax(),
                 len(proc_ranges))
         speed = self.SPEED
+        return speed, steering_angle
+
+
+class PureFTG:
+    def preprocess_lidar(self, ranges):
+        """ Any preprocessing of the LiDAR data can be done in this function.
+            Possible Improvements: smoothing of outliers in the data and placing
+            a cap on the maximum distance a point can be.
+        """
+        # remove quadrant of LiDAR directly behind us
+        eighth = int(len(ranges)/8)
+        return np.array(ranges[eighth:-eighth])
+
+    def get_angle(self, range_index, range_len):
+        """ Calculate the angle that corresponds to a given LiDAR point and
+            process it into a steering angle.
+            Possible improvements: smoothing of aggressive steering angles
+        """
+        lidar_angle = (range_index - (range_len/2)) * self.radians_per_point
+        steering_angle = np.clip(lidar_angle, np.radians(-90), np.radians(90))
+        return steering_angle
+
+    def process_lidar(self, ranges):
+        """ Run the disparity extender algorithm!
+            Possible improvements: varying the speed based on the
+            steering angle or the distance to the farthest point.
+        """
+        self.radians_per_point = (2*np.pi)/len(ranges)
+        proc_ranges = self.preprocess_lidar(ranges)
+        # obstacle correction
+
+        i = 0
+        value = 0
+        adj = 0
+        # scan both left to right and right to left
+        while i < len(proc_ranges) - 2:
+            if i >= len(proc_ranges) - 2:
+                break
+            if adj > 0:
+                proc_ranges[i] = value
+                adj -= 1
+            # check edge from small to large and extend
+            elif (proc_ranges[i + 1] - proc_ranges[i]) > 1:
+                # extend more if the distance is smaller 
+                adj = int(150 /  (proc_ranges[i] + 1))
+                value = proc_ranges[i]
+            i += 1
+        i = len(proc_ranges) - 1
+        while i > 1:
+            if i <= 1:
+                break
+            if adj > 0:
+                proc_ranges[i] = value
+                adj -= 1
+            # check edge from small to large and extend
+            elif (proc_ranges[i - 1] - proc_ranges[i]) > 1:
+                # extend more if the distance is smaller 
+                adj = int(150 / (proc_ranges[i] + 1))
+                value = proc_ranges[i]
+            i -= 1
+        steering_angle = self.get_angle(proc_ranges.argmax(), len(proc_ranges)) / 2
+        speed = 1.3 + (0.5 * proc_ranges[proc_ranges.argmax()])
+        return speed, steering_angle
+
+class Hybrid:
+    def preprocess_lidar(self, ranges):
+        """ Any preprocessing of the LiDAR data can be done in this function.
+            Possible Improvements: smoothing of outliers in the data and placing
+            a cap on the maximum distance a point can be.
+        """
+        # remove quadrant of LiDAR directly behind us
+        eighth = int(len(ranges)/8)
+        return np.array(ranges[eighth:-eighth])
+
+    def get_angle(self, range_index, range_len):
+        """ Calculate the angle that corresponds to a given LiDAR point and
+            process it into a steering angle.
+            Possible improvements: smoothing of aggressive steering angles
+        """
+        lidar_angle = (range_index - (range_len/2)) * self.radians_per_point
+        steering_angle = np.clip(lidar_angle, np.radians(-90), np.radians(90))
+        return steering_angle
+
+    def process_lidar(self, ranges):
+        """ Run the disparity extender algorithm!
+            Possible improvements: varying the speed based on the
+            steering angle or the distance to the farthest point.
+        """
+        self.radians_per_point = (2*np.pi)/len(ranges)
+        proc_ranges = self.preprocess_lidar(ranges)
+        # obstacle correction
+
+        i = 0
+        value = 0
+        adj = 0
+        # scan both left to right and right to left
+        while i < len(proc_ranges) - 2:
+            if i >= len(proc_ranges) - 2:
+                break
+            if adj > 0:
+                proc_ranges[i] = value
+                adj -= 1
+            # check edge from small to large and extend
+            elif (proc_ranges[i + 1] - proc_ranges[i]) > 1:
+                # extend more if the distance is smaller 
+                adj = int(150 /  (proc_ranges[i] + 1))
+                value = proc_ranges[i]
+            i += 1
+        i = len(proc_ranges) - 1
+        while i > 1:
+            if i <= 1:
+                break
+            if adj > 0:
+                proc_ranges[i] = value
+                adj -= 1
+            # check edge from small to large and extend
+            elif (proc_ranges[i - 1] - proc_ranges[i]) > 1:
+                # extend more if the distance is smaller 
+                adj = int(150 / (proc_ranges[i] + 1))
+                value = proc_ranges[i]
+            i -= 1
+        steering_angle = self.get_angle(proc_ranges.argmax(), len(proc_ranges)) / 2
+        speed = 1.3 + (0.5 * proc_ranges[proc_ranges.argmax()])
         return speed, steering_angle
