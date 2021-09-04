@@ -7,6 +7,8 @@ import sys
 
 from stable_baselines3 import PPO
 from functools import reduce
+
+from yaml import scan
 # Get ./src/ folder & add it to path
 current_dir = os.path.abspath(os.path.dirname(__file__))
 sys.path.append(current_dir)
@@ -61,6 +63,7 @@ class GymRunner(object):
         #     with concurrent.futures.ThreadPoolExecutor() as executor:
         #         for i, driver in enumerate(drivers):
         #             futures.append(executor.submit(driver.process_lidar, obs['scans'][i]))
+        #             print(len( obs['scans'][i]))
         #     for future in futures:
         #         speed, steer = future.result()
         #         actions.append([steer, speed])
