@@ -46,17 +46,19 @@ class GymRunner(object):
         env = F110Env(map_path + '/' + RACETRACK, '.png', len(drivers))
         # check_env(env)
 
-        # model = PPO('MlpPolicy', env, verbose=1)
-        # model.learn(total_timesteps=1)
-        model = SAC("MlpPolicy", env, verbose=1)
-        model.learn(total_timesteps=10000, log_interval=4)
+        model = PPO('MlpPolicy', env, learning_rate=0.01, verbose=1)
+        # model = SAC("MlpPolicy", env, verbose=1)
+        # model.learn(total_timesteps=10000, log_interval=1)
     
         print("done")
+        # model.save("ppo_f1tenth")
         # model.save("sac_f1tenth")
+
+        model = PPO.load("ppo_f1tenth_1")
         # model = SAC.load("sac_f1tenth_1")
-        # model.set_env(env)
-        # model.learn(total_timesteps=10000, log_interval=4)
-        model.save("sac_f1tenth_1")
+        model.set_env(env)
+        model.learn(total_timesteps=10000, log_interval=1)
+        model.save("ppo_f1tenth_1")
 
         obs = env.reset()
         while True:
