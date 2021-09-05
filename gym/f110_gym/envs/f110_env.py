@@ -332,7 +332,7 @@ class F110Env(gym.Env, utils.EzPickle):
         """
         steering = self.ftg.process_lidar(self.last_obs)
         action = [steering[1], action_speed[0]]
-        print(action)
+        #  print(action)
         # call simulation step
         # TODO: normalize inputs
         raw_obs = self.sim.step(np.array([action]))
@@ -344,7 +344,8 @@ class F110Env(gym.Env, utils.EzPickle):
         self.current_obs = raw_obs
 
         # times
-        reward = self.timestep
+        reward += self.timestep
+        reward += action[1]
         self.current_time = self.current_time + self.timestep
         
         # update data member
