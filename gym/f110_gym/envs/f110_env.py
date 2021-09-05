@@ -344,7 +344,7 @@ class F110Env(gym.Env, utils.EzPickle):
         self.current_obs = raw_obs
 
         # times
-        reward += self.timestep
+        reward = self.timestep
         reward += action[1]
         self.current_time = self.current_time + self.timestep
         
