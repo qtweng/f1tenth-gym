@@ -158,8 +158,8 @@ class F110Env(gym.Env, utils.EzPickle):
 
     def __init__(self, map_path, map_ext, num_drivers, **kwargs):        
         # kwargs extraction
-        self.action_space = spaces.Box(-10 * np.ones(1), 10 * np.ones(1))
-        self.observation_space = spaces.Box(-100 * np.ones(1083), 100 * np.ones(1083))
+        self.action_space = spaces.Box(np.array([0]), np.array([50]))
+        self.observation_space = spaces.Box(0 * np.ones(1083), 100 * np.ones(1083))
 
         self.reward_range = (-np.inf, np.inf)
         try:
@@ -312,10 +312,10 @@ class F110Env(gym.Env, utils.EzPickle):
         Returns:
             None
         """
-        # self.poses_x = obs_dict['poses_x']
-        # self.poses_y = obs_dict['poses_y']
-        # self.poses_theta = obs_dict['poses_theta']
-        # self.collisions = obs_dict['collisions']
+        self.poses_x = obs_dict['poses_x']
+        self.poses_y = obs_dict['poses_y']
+        self.poses_theta = obs_dict['poses_theta']
+        self.collisions = obs_dict['collisions']
 
     def step(self, action_speed):
         """
@@ -331,25 +331,24 @@ class F110Env(gym.Env, utils.EzPickle):
             info (dict): auxillary information dictionary
         """
         steering = self.ftg.process_lidar(self.last_obs)
-        print(steering)
         action = [steering[1], action_speed[0]]
         print(action)
         # call simulation step
         # TODO: normalize inputs
-        raw_obs = self.sim.step([action])
+        raw_obs = self.sim.step(np.array([action]))
         args = (np.array(raw_obs['scans'][0]), np.array([raw_obs['linear_vels_x'][0]]), np.array([raw_obs['linear_vels_y'][0]]), np.array([raw_obs['ang_vels_z'][0]]))
         obs = np.concatenate(args).flatten()
-        # obs['lap_times'] = self.lap_times
-        # obs['lap_counts'] = self.lap_counts
+        raw_obs['lap_times'] = self.lap_times
+        raw_obs['lap_counts'] = self.lap_counts
         
-        self.current_obs = obs
+        self.current_obs = raw_obs
 
         # times
         reward = self.timestep
         self.current_time = self.current_time + self.timestep
         
         # update data member
-        # self._update_state(obs)
+        self._update_state(raw_obs)
 
         # check done
         done, toggle_list = self._check_done()
@@ -396,7 +395,6 @@ class F110Env(gym.Env, utils.EzPickle):
         args = (np.array(raw_obs['scans'][0]), np.array([raw_obs['linear_vels_x'][0]]), np.array([raw_obs['linear_vels_y'][0]]), np.array([raw_obs['ang_vels_z'][0]]))
         obs = np.concatenate(args).flatten()
         self.last_obs = obs
-        print(obs)
         reward = 0
         done = False
         info = {}

@@ -443,8 +443,6 @@ class Simulator(object):
         
         # looping over agents
         for i, agent in enumerate(self.agents):
-            print(control_inputs[0][0])
-            print(control_inputs[0][1])
             # update each agent's pose
             agent.update_pose(control_inputs[i, 0], control_inputs[i, 1])
 

@@ -310,7 +310,6 @@ class EnvRenderer(pyglet.window.Window):
         Returns:
             None
         """
-
         self.ego_idx = obs['ego_idx']
         poses_x = obs['poses_x']
         poses_y = obs['poses_y']
