@@ -23,7 +23,7 @@
 '''
 Author: Hongrui Zheng
 '''
-
+import math
 # gym imports
 import gym
 from gym import error, spaces, utils
@@ -158,8 +158,8 @@ class F110Env(gym.Env, utils.EzPickle):
 
     def __init__(self, map_path, map_ext, num_drivers, **kwargs):        
         # kwargs extraction
-        self.action_space = spaces.Box(np.array([0]), np.array([50]))
-        self.observation_space = spaces.Box(0 * np.ones(1083), 100 * np.ones(1083))
+        self.action_space = spaces.Box(np.array([3]), np.array([30]))
+        self.observation_space = spaces.Box(0 * np.ones(1081), 1 * np.ones(1081))
 
         self.reward_range = (-np.inf, np.inf)
         try:
@@ -298,8 +298,9 @@ class F110Env(gym.Env, utils.EzPickle):
             if self.toggle_list[i] < 4:
                 self.lap_times[i] = self.current_time
         
-        done = (self.collisions[self.ego_idx]) or np.all(self.toggle_list >= 4)
-        
+        done = (self.collisions[self.ego_idx]) or (self.current_time > 500)
+        #or np.all(self.toggle_list >= 4)
+
         return done, self.toggle_list >= 4
 
     def _update_state(self, obs_dict):
@@ -336,16 +337,17 @@ class F110Env(gym.Env, utils.EzPickle):
         # call simulation step
         # TODO: normalize inputs
         raw_obs = self.sim.step(np.array([action]))
-        args = (np.array(raw_obs['scans'][0]), np.array([raw_obs['linear_vels_x'][0]]), np.array([raw_obs['linear_vels_y'][0]]), np.array([raw_obs['ang_vels_z'][0]]))
+        args = (np.array(raw_obs['scans'][0]), np.array([raw_obs['linear_vels_x'][0]]))
+        # np.array([raw_obs['linear_vels_y'][0]]), np.array([raw_obs['ang_vels_z'][0]]))
         obs = np.concatenate(args).flatten()
         raw_obs['lap_times'] = self.lap_times
         raw_obs['lap_counts'] = self.lap_counts
         
         self.current_obs = raw_obs
-
+        
         # times
-        reward = self.timestep
-        reward += action[1]
+        reward = 0.01 +  self.lap_counts[0]/(self.current_time+1)*50
+        #math.sqrt(obs[-2]**2 + obs[-3]**2)/30
         self.current_time = self.current_time + self.timestep
         
         # update data member
@@ -393,8 +395,7 @@ class F110Env(gym.Env, utils.EzPickle):
         action = np.zeros((self.num_agents, 2))
         # obs, reward, done, info = self.step(action)
         raw_obs = self.sim.step(np.array([[0. ,0. ]]))
-        args = (np.array(raw_obs['scans'][0]), np.array([raw_obs['linear_vels_x'][0]]), np.array([raw_obs['linear_vels_y'][0]]), np.array([raw_obs['ang_vels_z'][0]]))
-        obs = np.concatenate(args).flatten()
+        obs = np.array(np.zeros(1081))
         self.last_obs = obs
         reward = 0
         done = False
