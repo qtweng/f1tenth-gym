@@ -158,8 +158,12 @@ class F110Env(gym.Env, utils.EzPickle):
 
     def __init__(self, map_path, map_ext, num_drivers, **kwargs):        
         # kwargs extraction
-        self.action_space = spaces.Box(np.array([3]), np.array([30]))
-        self.observation_space = spaces.Box(0 * np.ones(1081), 1 * np.ones(1081))
+        self.action_space = spaces.Box(low=3, high=30, shape=(1,),dtype=np.float32)
+        obs_space = {
+                'lidar': spaces.Box(low=0, high=120, shape=(1080,), dtype=np.float32),
+                'vel': spaces.Box(low=3, high=30, shape=(1,), dtype=np.float32)
+                }
+        self.observation_space = spaces.Dict(obs_space)
 
         self.reward_range = (-np.inf, np.inf)
         try:
@@ -298,9 +302,8 @@ class F110Env(gym.Env, utils.EzPickle):
             if self.toggle_list[i] < 4:
                 self.lap_times[i] = self.current_time
         
-        done = (self.collisions[self.ego_idx]) or (self.current_time > 500)
+        done = bool((self.collisions[self.ego_idx]) or (self.current_time > 100))
         #or np.all(self.toggle_list >= 4)
-
         return done, self.toggle_list >= 4
 
     def _update_state(self, obs_dict):
@@ -331,7 +334,7 @@ class F110Env(gym.Env, utils.EzPickle):
             done (bool): if the simulation is done
             info (dict): auxillary information dictionary
         """
-        steering = self.ftg.process_lidar(self.last_obs)
+        steering = self.ftg.process_lidar(self.last_obs['scans'][0])
         action = [steering[1], action_speed[0]]
         #  print(action)
         # call simulation step
@@ -339,14 +342,17 @@ class F110Env(gym.Env, utils.EzPickle):
         raw_obs = self.sim.step(np.array([action]))
         args = (np.array(raw_obs['scans'][0]), np.array([raw_obs['linear_vels_x'][0]]))
         # np.array([raw_obs['linear_vels_y'][0]]), np.array([raw_obs['ang_vels_z'][0]]))
-        obs = np.concatenate(args).flatten()
+        obs = {
+            'lidar': np.array(raw_obs['scans'][0]),
+            'vel': np.array(raw_obs['linear_vels_x'][0])
+                }
         raw_obs['lap_times'] = self.lap_times
         raw_obs['lap_counts'] = self.lap_counts
         
         self.current_obs = raw_obs
         
         # times
-        reward = 0.01 +  self.lap_counts[0]/(self.current_time+1)*50
+        reward = 0.01 +  (self.lap_counts[0]**2)/(self.current_time+1)*50
         #math.sqrt(obs[-2]**2 + obs[-3]**2)/30
         self.current_time = self.current_time + self.timestep
         
@@ -356,7 +362,7 @@ class F110Env(gym.Env, utils.EzPickle):
         # check done
         done, toggle_list = self._check_done()
         info = {'checkpoint_done': toggle_list}
-        self.last_obs = obs
+        self.last_obs = raw_obs
         return obs, reward, done, info
 
     def reset(self):
@@ -395,8 +401,11 @@ class F110Env(gym.Env, utils.EzPickle):
         action = np.zeros((self.num_agents, 2))
         # obs, reward, done, info = self.step(action)
         raw_obs = self.sim.step(np.array([[0. ,0. ]]))
-        obs = np.array(np.zeros(1081))
-        self.last_obs = obs
+        obs = {
+            'lidar': np.array(raw_obs['scans'][0]),
+            'vel': np.array(raw_obs['linear_vels_x'][0])
+                }
+        self.last_obs = raw_obs
         reward = 0
         done = False
         info = {}
