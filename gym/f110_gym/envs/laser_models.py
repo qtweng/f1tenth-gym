@@ -204,7 +204,7 @@ def check_ttc_jit(scan, vel, scan_angles, cosines, side_distances, ttc_thresh):
     """
     if vel != 0.0:
         num_beams = scan.shape[0]
-        for i in range(num_beams):
+        for i in range(num_beams): 
             proj_vel = vel*cosines[i]
             ttc = (scan[i] - side_distances[i])/proj_vel
             if (ttc < ttc_thresh) and (ttc >= 0.0):

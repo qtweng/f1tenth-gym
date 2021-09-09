@@ -12,6 +12,7 @@ from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.env_checker import check_env
 from stable_baselines3.common.noise import NormalActionNoise
 from stable_baselines3.common.utils import set_random_seed
+from stable_baselines3.common.logger import configure
 from functools import reduce
 
 from yaml import scan
@@ -26,7 +27,7 @@ from pkg.drivers import PureFTG, DisparityExtender, GapFollower
 drivers = [PureFTG()]
 
 # choose your racetrack here (SILVERSTONE, SILVERSTONE_OBS)
-RACETRACK = 'map0'
+RACETRACK = 'SOCHI'
 
 root_path = reduce(lambda path, _: os.path.dirname(path), range(3), os.path.dirname(os.path.realpath(__file__)))
 env_path = os.path.join(root_path, 'gym', 'f110_gym', 'envs')
@@ -58,6 +59,9 @@ class GymRunner(object):
         self.drivers = drivers
 
     def run(self):
+        tmp_path = "./tmp/sb3_log/"
+        # set up logger
+        new_logger = configure(tmp_path, ["stdout", "csv", "tensorboard"])
         # load map
         # env = gym.make('f110_gym:f110-v0',
         #                map="{}/maps/{}".format(current_dir, RACETRACK),
@@ -65,34 +69,34 @@ class GymRunner(object):
         # print(f'Initializing env with: {map_path + "/" + RACETRACK, ".png", len(drivers)}')
                 
         env = F110Env(map_path + '/' + RACETRACK, '.png', len(drivers))
-        #env = SubprocVecEnv([make_env(i) for i in range(8)])
+        
+        check_env(env)
+        env = SubprocVecEnv([make_env(i) for i in range(8)])
         #env = DummyVecEnv([make_env(i) for i in range(12)])
-        env = DummyVecEnv([lambda: env])
-        env = VecNormalize(env,norm_reward=False )
+        #env = DummyVecEnv([lambda: env])
+        env = VecNormalize(env, norm_reward=True)
         env = VecMonitor(env)
-        # check_env(env)
         
         # noise objects for td3
         n_actions = env.action_space.shape[-1]
-        action_noise = NormalActionNoise(mean=np.zeros(n_actions), sigma = 0.01 * np.ones(n_actions))
+        action_noise = NormalActionNoise(mean=np.zeros(n_actions), sigma = 0.05 * np.ones(n_actions))
 
         # modesl
-        #model = PPO('MultiInputPolicy', env, learning_rate=0.03, batch_size=256, verbose=2)
+        model = PPO('MlpPolicy', env, n_steps=1024, learning_rate=0.0005, batch_size=64, clip_range=0.2, clip_range_vf=0.2, n_epochs=10, ent_coef=0.1, target_kl= 1, use_sde=True, sde_sample_freq=512, verbose=2)
         #model = SAC("MultiInputPolicy", env, verbose=2)
-        model = TD3("MultiInputPolicy", env, action_noise=action_noise, verbose=2)
-        model.learn(total_timesteps=400000, log_interval=1)
-    
+        #model = TD3("MultiInputPolicy", env, buffer_size=200000, learning_starts=10000, gamma=0.98, learning_rate=0.003, action_noise=action_noise, verbose=2)
+        #model.learn(total_timesteps=400000, log_interval=1)
+        #model = PPO.load("ppo_f1tenth")
+        model.set_env(env)
+        model.set_logger(new_logger)
         while True:
             print("done")
             #model.save("ppo_f1tenth")
-            model.save("td3_f1tenth")
-
             #model = PPO.load("ppo_f1tenth")
             #model = SAC.load("sac_f1tenth")
-            model = TD3.load("td3_f1tenth")
-            model.set_env(env)
-            model.learn(total_timesteps=400000, log_interval=1)
+            model.learn(total_timesteps=500000, log_interval=1)
 
+            model.save("ppo_f1tenth")
         obs = env.reset()
         while True:
             action, _states = model.predict(obs, deterministic=True)
