@@ -6,8 +6,7 @@ import os
 import sys
 
 from stable_baselines3 import PPO, SAC, TD3
-from stable_baselines3.common.vec_env import VecEnv, VecEnvWrapper, DummyVecEnv, SubprocVecEnv
-from stable_baselines3.common.vec_env import VecNormalize, VecMonitor
+from stable_baselines3.common.vec_env import VecEnv, VecEnvWrapper, DummyVecEnv, SubprocVecEnv, VecNormalize, VecMonitor, VecCheckNan
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.env_checker import check_env
 from stable_baselines3.common.noise import NormalActionNoise
@@ -74,19 +73,21 @@ class GymRunner(object):
         env = SubprocVecEnv([make_env(i) for i in range(8)])
         #env = DummyVecEnv([make_env(i) for i in range(12)])
         #env = DummyVecEnv([lambda: env])
-        env = VecNormalize(env, norm_reward=True)
+        #env = VecNormalize(env, norm_reward=False, training=True)
         env = VecMonitor(env)
-        
+        env = VecCheckNan(env, raise_exception=True)
+
         # noise objects for td3
         n_actions = env.action_space.shape[-1]
         action_noise = NormalActionNoise(mean=np.zeros(n_actions), sigma = 0.05 * np.ones(n_actions))
 
         # modesl
-        model = PPO('MlpPolicy', env, n_steps=1024, learning_rate=0.0005, batch_size=64, clip_range=0.2, clip_range_vf=0.2, n_epochs=10, ent_coef=0.1, target_kl= 1, use_sde=True, sde_sample_freq=512, verbose=2)
+        model = PPO('MlpPolicy', env, n_steps=1024, learning_rate=0.0003, batch_size=128, clip_range=0.2, clip_range_vf=0.2, n_epochs=20, ent_coef=0.05, target_kl= 0.2, use_sde=True, sde_sample_freq=512, verbose=2)
         #model = SAC("MultiInputPolicy", env, verbose=2)
         #model = TD3("MultiInputPolicy", env, buffer_size=200000, learning_starts=10000, gamma=0.98, learning_rate=0.003, action_noise=action_noise, verbose=2)
         #model.learn(total_timesteps=400000, log_interval=1)
         #model = PPO.load("ppo_f1tenth")
+        #env = VecNormalize.load('saved_env.pkl',env)
         model.set_env(env)
         model.set_logger(new_logger)
         while True:
@@ -94,9 +95,11 @@ class GymRunner(object):
             #model.save("ppo_f1tenth")
             #model = PPO.load("ppo_f1tenth")
             #model = SAC.load("sac_f1tenth")
-            model.learn(total_timesteps=500000, log_interval=1)
+            model.learn(total_timesteps=10000000, log_interval=1)
 
             model.save("ppo_f1tenth")
+            #env.save('saved_env.pkl')
+
         obs = env.reset()
         while True:
             action, _states = model.predict(obs, deterministic=True)

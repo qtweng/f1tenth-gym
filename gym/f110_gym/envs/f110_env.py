@@ -164,7 +164,8 @@ class F110Env(gym.Env, utils.EzPickle):
         #        'vel': spaces.Box(low=3, high=30, shape=(1,), dtype=np.float32)
         #        }
         #self.observation_space = spaces.Dict(obs_space)
-        self.observation_space = spaces.Box(np.concatenate((np.full(1080, 0, dtype=np.float32), np.array([0.]))), np.concatenate((np.full(1080, 120, dtype=np.float32), np.array([30.]))))
+        #self.observation_space = spaces.Box(np.concatenate((np.full(1080, 0, dtype=np.float32), np.array([0.]))), np.concatenate((np.full(1080, 120, dtype=np.float32), np.array([30.]))))
+        self.observation_space = spaces.Box(low=-1, high=1, shape=(1081,), dtype=np.float32)
 
         self.reward_range = (0.0, np.inf)
         try:
@@ -303,7 +304,7 @@ class F110Env(gym.Env, utils.EzPickle):
             if self.toggle_list[i] < 4:
                 self.lap_times[i] = self.current_time
         
-        done = bool((self.collisions[self.ego_idx]) or (self.current_time > 500))
+        done = bool((self.collisions[self.ego_idx]) or (self.current_time > 200))
         #or np.all(self.toggle_list >= 4)
         return done, self.toggle_list >= 4
 
@@ -337,13 +338,14 @@ class F110Env(gym.Env, utils.EzPickle):
         """
         steering = self.ftg.process_lidar(self.last_obs['scans'][0])
         #https://stats.stackexchange.com/questions/25894/changing-the-scale-of-a-variable-to-0-100
-        action_speed = (30-0)/(1-(-1)) * (action_speed+1) 
+        action_speed[0] = (22)/(2) * (action_speed[0]+1)+3
+        #print(action_speed)
         action = [steering[1], action_speed[0]]
         #  print(action)
         # call simulation step
         # TODO: normalize inputs
         raw_obs = self.sim.step(np.array([action]))
-        args = (np.array(raw_obs['scans'][0]), np.array([raw_obs['linear_vels_x'][0]]))
+        args = ((np.clip(np.array(raw_obs['scans'][0]), 0, 120)-60)/60, (np.clip(np.array([raw_obs['linear_vels_x'][0]]), 0, 25)-12.5)/12.5)
         # np.array([raw_obs['linear_vels_y'][0]]), np.array([raw_obs['ang_vels_z'][0]]))
         obs = np.concatenate(args)
         #obs = {
@@ -356,7 +358,7 @@ class F110Env(gym.Env, utils.EzPickle):
         self.current_obs = raw_obs
         
         # times
-        reward = 0.01 +  (self.lap_counts[0]**1.5)/100
+        reward = 0.02 +  (self.lap_counts[0]**1.5)/100
         #math.sqrt(obs[-2]**2 + obs[-3]**2)/30
         self.current_time = self.current_time + self.timestep
         
@@ -406,7 +408,7 @@ class F110Env(gym.Env, utils.EzPickle):
         # obs, reward, done, info = self.step(action)
         raw_obs = self.sim.step(np.array([[0. ,0. ]]))
         
-        args = (np.array(raw_obs['scans'][0]), np.array([raw_obs['linear_vels_x'][0]]))
+        args = ((np.clip(np.array(raw_obs['scans'][0]), 0, 120)-60)/60, (np.clip(np.array([raw_obs['linear_vels_x'][0]]), 0, 25)-12.5)/12.5)
         obs = np.concatenate(args)
         #obs = {
         #    'lidar': np.array(raw_obs['scans'][0]),
