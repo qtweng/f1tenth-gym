@@ -12,7 +12,7 @@ import time
 import rosgraph
 import socket
 
-from pkg.drivers import DisparityExtender as Driver
+from pkg.drivers import Hybrid as Driver
 
 """
 NOTE: Following code enables F1Tenth - Docker - ROS integration.  

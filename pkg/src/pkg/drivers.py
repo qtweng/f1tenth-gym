@@ -1,4 +1,5 @@
 import numpy as np
+from stable_baselines3 import PPO
 
 
 class GapFollower:
@@ -253,3 +254,134 @@ class DisparityExtender:
 
     def process_observation(self, ranges, ego_odom):
         return self._process_lidar(ranges)
+
+class PureFTG:
+    def preprocess_lidar(self, ranges):
+        """ Any preprocessing of the LiDAR data can be done in this function.
+            Possible Improvements: smoothing of outliers in the data and placing
+            a cap on the maximum distance a point can be.
+        """
+        # remove quadrant of LiDAR directly behind us
+        eighth = int(len(ranges)/8)
+        return np.array(ranges[eighth:-eighth])
+
+    def get_angle(self, range_index, range_len):
+        """ Calculate the angle that corresponds to a given LiDAR point and
+            process it into a steering angle.
+            Possible improvements: smoothing of aggressive steering angles
+        """
+        lidar_angle = (range_index - (range_len/2)) * self.radians_per_point
+        steering_angle = np.clip(lidar_angle, np.radians(-90), np.radians(90))
+        return steering_angle
+
+    def process_lidar(self, ranges):
+        """ Run the disparity extender algorithm!
+            Possible improvements: varying the speed based on the
+            steering angle or the distance to the farthest point.
+        """
+        self.radians_per_point = (2*np.pi)/len(ranges)
+        proc_ranges = self.preprocess_lidar(ranges)
+        # obstacle correction
+
+        i = 0
+        value = 0
+        adj = 0
+        # scan both left to right and right to left
+        while i < len(proc_ranges) - 2:
+            if i >= len(proc_ranges) - 2:
+                break
+            if adj > 0:
+                proc_ranges[i] = value
+                adj -= 1
+            # check edge from small to large and extend
+            elif (proc_ranges[i + 1] - proc_ranges[i]) > 1:
+                # extend more if the distance is smaller 
+                adj = int(115 /  (proc_ranges[i] + 1))
+                value = proc_ranges[i]
+            i += 1
+        i = len(proc_ranges) - 1
+        while i > 1:
+            if i <= 1:
+                break
+            if adj > 0:
+                proc_ranges[i] = value
+                adj -= 1
+            # check edge from small to large and extend
+            elif (proc_ranges[i - 1] - proc_ranges[i]) > 1:
+                # extend more if the distance is smaller 
+                adj = int(115 / (proc_ranges[i] + 1))
+                value = proc_ranges[i]
+            i -= 1
+        steering_angle = self.get_angle(proc_ranges.argmax(), len(proc_ranges)) / 2
+        speed = 1.3 + (0.5 * proc_ranges[proc_ranges.argmax()])
+        return speed, steering_angle
+
+    def process_observation(self, ranges, ego_odom):
+        return self._process_lidar(ranges)
+
+class Hybrid:
+    def preprocess_lidar(self, ranges):
+        """ Any preprocessing of the LiDAR data can be done in this function.
+            Possible Improvements: smoothing of outliers in the data and placing
+            a cap on the maximum distance a point can be.
+        """
+        # remove quadrant of LiDAR directly behind us
+        eighth = int(len(ranges)/8)
+        return np.array(ranges[eighth:-eighth])
+
+    def get_angle(self, range_index, range_len):
+        """ Calculate the angle that corresponds to a given LiDAR point and
+            process it into a steering angle.
+            Possible improvements: smoothing of aggressive steering angles
+        """
+        lidar_angle = (range_index - (range_len/2)) * self.radians_per_point
+        steering_angle = np.clip(lidar_angle, np.radians(-90), np.radians(90))
+        return steering_angle
+
+    def process_lidar(self, ranges):
+        """ Run the disparity extender algorithm!
+            Possible improvements: varying the speed based on the
+            steering angle or the distance to the farthest point.
+        """
+        self.radians_per_point = (2*np.pi)/len(ranges)
+        proc_ranges = self.preprocess_lidar(ranges)
+        # obstacle correction
+
+        i = 0
+        value = 0
+        adj = 0
+        # scan both left to right and right to left
+        while i < len(proc_ranges) - 2:
+            if i >= len(proc_ranges) - 2:
+                break
+            if adj > 0:
+                proc_ranges[i] = value
+                adj -= 1
+            # check edge from small to large and extend
+            elif (proc_ranges[i + 1] - proc_ranges[i]) > 1:
+                # extend more if the distance is smaller 
+                adj = int(115 /  (proc_ranges[i] + 1))
+                value = proc_ranges[i]
+            i += 1
+        i = len(proc_ranges) - 1
+        while i > 1:
+            if i <= 1:
+                break
+            if adj > 0:
+                proc_ranges[i] = value
+                adj -= 1
+            # check edge from small to large and extend
+            elif (proc_ranges[i - 1] - proc_ranges[i]) > 1:
+                # extend more if the distance is smaller 
+                adj = int(115 / (proc_ranges[i] + 1))
+                value = proc_ranges[i]
+            i -= 1
+        steering_angle = self.get_angle(proc_ranges.argmax(), len(proc_ranges)) / 2
+        return steering_angle
+        
+    def process_observation(self, ranges, ego_odom):
+        steer = self._process_lidar(ranges)
+        model = PPO.load("ppo_f1tenthv0")
+        obs = np.concatenate(ranges, ego_odom['linear_vels_x'])
+        speed = model.predict(obs, deterministic=True)
+        return speed, steer
