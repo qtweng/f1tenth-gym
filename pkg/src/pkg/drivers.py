@@ -1,5 +1,34 @@
 import numpy as np
-from stable_baselines3 import PPO
+# import gym
+# from stable_baselines3 import PPO
+import torch
+from torch import nn
+import os
+import sys
+
+# Get ./src/ folder & add it to path
+current_dir = os.path.abspath(os.path.dirname(__file__))
+sys.path.append(current_dir)
+# from f110_env import F110Env
+
+class MLP(nn.Module):
+  '''
+    Multilayer Perceptron.
+  '''
+  def __init__(self):
+    super().__init__()
+    self.layers = nn.Sequential(
+      nn.Linear(1081, 64),
+      nn.ReLU(),
+      nn.Linear(64, 64),
+      nn.ReLU(),
+      nn.Linear(64, 1)
+    )
+
+
+  def forward(self, x):
+    '''Forward pass'''
+    return self.layers(x)
 
 
 class GapFollower:
@@ -274,7 +303,7 @@ class PureFTG:
         steering_angle = np.clip(lidar_angle, np.radians(-90), np.radians(90))
         return steering_angle
 
-    def process_lidar(self, ranges):
+    def _process_lidar(self, ranges):
         """ Run the disparity extender algorithm!
             Possible improvements: varying the speed based on the
             steering angle or the distance to the farthest point.
@@ -312,8 +341,8 @@ class PureFTG:
                 adj = int(115 / (proc_ranges[i] + 1))
                 value = proc_ranges[i]
             i -= 1
-        steering_angle = self.get_angle(proc_ranges.argmax(), len(proc_ranges)) / 2
-        speed = 1.3 + (0.5 * proc_ranges[proc_ranges.argmax()])
+        steering_angle = self.get_angle(proc_ranges.argmax(), len(proc_ranges)) * 0.60
+        speed = 4.7 + (0.3 * proc_ranges[proc_ranges.argmax()])
         return speed, steering_angle
 
     def process_observation(self, ranges, ego_odom):
@@ -376,12 +405,27 @@ class Hybrid:
                 adj = int(115 / (proc_ranges[i] + 1))
                 value = proc_ranges[i]
             i -= 1
-        steering_angle = self.get_angle(proc_ranges.argmax(), len(proc_ranges)) / 2
+        steering_angle = self.get_angle(proc_ranges.argmax(), len(proc_ranges)) * 0.65
         return steering_angle
         
     def process_observation(self, ranges, ego_odom):
-        steer = self._process_lidar(ranges)
-        model = PPO.load("ppo_f1tenthv0")
-        obs = np.concatenate(ranges, ego_odom['linear_vels_x'])
-        speed = model.predict(obs, deterministic=True)
+        # env = F110Env(current_dir + 'maps/' + 'SOCHI_OBS', '.png', 1)
+        steer = self.process_lidar(ranges)
+
+        model = MLP()
+        checkpoint = torch.load(current_dir + '/ppo_f1tenth/policy.pth', map_location=torch.device('cpu'))
+
+        for key in list(checkpoint.keys()):
+            checkpoint[key.replace('mlp_extractor.policy_net.0.', 'layers.1.'). replace('mlp_extractor.policy_net.2.', 'layers.3.'). replace('action_net.', 'layers.5.')] = checkpoint.pop(key)
+
+        model.load_state_dict(checkpoint, strict=False)
+        model.eval()
+
+        args = ((np.clip(np.array(ranges), 0, 120)-60)/60, (np.clip(np.atleast_1d(np.array(ego_odom['linear_vel_x'])), 0, 25)-12)/12)
+        obs = np.concatenate(args)
+
+        obs = torch.from_numpy(obs)
+        model = model.double()
+        
+        speed = (model(obs.double())+1) * 15/2 + 5
         return speed, steer
