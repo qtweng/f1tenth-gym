@@ -25,7 +25,6 @@ Author: Hongrui Zheng
 '''
 
 # gym imports
-from pyglet import gl
 import gym
 from gym import error, spaces, utils
 from gym.utils import seeding
@@ -41,6 +40,7 @@ import time
 # gl
 import pyglet
 pyglet.options['debug_gl'] = False
+from pyglet import gl
 
 # constants
 
@@ -50,21 +50,20 @@ VIDEO_H = 400
 WINDOW_W = 1000
 WINDOW_H = 800
 
-
 class F110Env(gym.Env):
     """
     OpenAI gym environment for F1TENTH
-
+    
     Env should be initialized by calling gym.make('f110_gym:f110-v0', **kwargs)
 
     Args:
         kwargs:
             seed (int, default=12345): seed for random state and reproducibility
-
+            
             map (str, default='vegas'): name of the map used for the environment. Currently, available environments include: 'berlin', 'vegas', 'skirk'. You could use a string of the absolute path to the yaml file of your custom map.
-
+        
             map_ext (str, default='png'): image extension of the map image file. For example 'png', 'pgm'
-
+        
             params (dict, default={'mu': 1.0489, 'C_Sf':, 'C_Sr':, 'lf': 0.15875, 'lr': 0.17145, 'h': 0.074, 'm': 3.74, 'I': 0.04712, 's_min': -0.4189, 's_max': 0.4189, 'sv_min': -3.2, 'sv_max': 3.2, 'v_switch':7.319, 'a_max': 9.51, 'v_min':-5.0, 'v_max': 20.0, 'width': 0.31, 'length': 0.58}): dictionary of vehicle parameters.
             mu: surface friction coefficient
             C_Sf: Cornering stiffness coefficient, front
@@ -98,7 +97,7 @@ class F110Env(gym.Env):
     current_obs = None
     render_callbacks = []
 
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs):        
         # kwargs extraction
         try:
             self.seed = kwargs['seed']
@@ -108,19 +107,15 @@ class F110Env(gym.Env):
             self.map_name = kwargs['map']
             # different default maps
             if self.map_name == 'berlin':
-                self.map_path = os.path.dirname(
-                    os.path.abspath(__file__)) + '/maps/berlin.yaml'
+                self.map_path = os.path.dirname(os.path.abspath(__file__)) + '/maps/berlin.yaml'
             elif self.map_name == 'skirk':
-                self.map_path = os.path.dirname(
-                    os.path.abspath(__file__)) + '/maps/skirk.yaml'
+                self.map_path = os.path.dirname(os.path.abspath(__file__)) + '/maps/skirk.yaml'
             elif self.map_name == 'levine':
-                self.map_path = os.path.dirname(
-                    os.path.abspath(__file__)) + '/maps/levine.yaml'
+                self.map_path = os.path.dirname(os.path.abspath(__file__)) + '/maps/levine.yaml'
             else:
                 self.map_path = self.map_name + '.yaml'
         except:
-            self.map_path = os.path.dirname(
-                os.path.abspath(__file__)) + '/maps/vegas.yaml'
+            self.map_path = os.path.dirname(os.path.abspath(__file__)) + '/maps/vegas.yaml'
 
         try:
             self.map_ext = kwargs['map_ext']
@@ -130,8 +125,7 @@ class F110Env(gym.Env):
         try:
             self.params = kwargs['params']
         except:
-            self.params = {'mu': 1.0489, 'C_Sf': 4.718, 'C_Sr': 5.4562, 'lf': 0.15875, 'lr': 0.17145, 'h': 0.074, 'm': 3.74, 'I': 0.04712, 's_min': -0.4189,
-                           's_max': 0.4189, 'sv_min': -3.2, 'sv_max': 3.2, 'v_switch': 7.319, 'a_max': 9.51, 'v_min': -5.0, 'v_max': 20.0, 'width': 0.31, 'length': 0.58}
+            self.params = {'mu': 1.0489, 'C_Sf': 4.718, 'C_Sr': 5.4562, 'lf': 0.15875, 'lr': 0.17145, 'h': 0.074, 'm': 3.74, 'I': 0.04712, 's_min': -0.4189, 's_max': 0.4189, 'sv_min': -3.2, 'sv_max': 3.2, 'v_switch': 7.319, 'a_max': 9.51, 'v_min':-5.0, 'v_max': 20.0, 'width': 0.31, 'length': 0.58}
 
         # simulation parameters
         try:
@@ -192,17 +186,14 @@ class F110Env(gym.Env):
         self.start_rot = np.eye(2)
 
         # initiate stuff
-        self.sim = Simulator(self.params, self.num_agents, self.seed,
-                             time_step=self.timestep, integrator=self.integrator)
+        self.sim = Simulator(self.params, self.num_agents, self.seed, time_step=self.timestep, integrator=self.integrator)
         self.sim.set_map(self.map_path, self.map_ext)
 
         # stateful observations for rendering
         self.render_obs = None
 
-        self.observation_space = spaces.Box(
-            low=-1, high=1, shape=(1081,), dtype=np.float32)
-        self.action_space = spaces.Box(
-            low=-1, high=1, shape=(1, 2), dtype=np.float32)
+        self.observation_space = spaces.Box(low=-1, high=1, shape=(1081,), dtype=np.float32)
+        self.action_space = spaces.Box(low=-1, high=1, shape=(1,2),dtype=np.float32)
 
     def __del__(self):
         """
@@ -213,7 +204,7 @@ class F110Env(gym.Env):
     def _check_done(self):
         """
         Check if the current rollout is done
-
+        
         Args:
             None
 
@@ -226,11 +217,11 @@ class F110Env(gym.Env):
         # TODO: switch to maybe s-based
         left_t = 2
         right_t = 2
-
+        
         poses_x = np.array(self.poses_x)-self.start_xs
         poses_y = np.array(self.poses_y)-self.start_ys
         delta_pt = np.dot(self.start_rot, np.stack((poses_x, poses_y), axis=0))
-        temp_y = delta_pt[1, :]
+        temp_y = delta_pt[1,:]
         idx1 = temp_y > left_t
         idx2 = temp_y < -right_t
         temp_y[idx1] -= left_t
@@ -249,15 +240,15 @@ class F110Env(gym.Env):
             self.lap_counts[i] = self.toggle_list[i] // 2
             if self.toggle_list[i] < 4:
                 self.lap_times[i] = self.current_time
-
+        
         done = (self.collisions[self.ego_idx]) or np.all(self.toggle_list >= 4)
-
+        
         return bool(done), self.toggle_list >= 4
 
     def _update_state(self, obs_dict):
         """
         Update the env's states according to observations
-
+        
         Args:
             obs_dict (dict): dictionary of observation
 
@@ -285,7 +276,7 @@ class F110Env(gym.Env):
         # call simulation step
         # normalize
         v = action[:, 1]
-        action[:, 1] = (v-(-1)) * (20-0) / (1-(-1)) + 0
+        action[:, 1] = (v-(-1)) * (30-0) / (1-(-1)) + 0
         info = self.sim.step(action)
         info['lap_times'] = self.lap_times
         info['lap_counts'] = self.lap_counts
@@ -299,26 +290,25 @@ class F110Env(gym.Env):
             'poses_theta': info['poses_theta'],
             'lap_times': info['lap_times'],
             'lap_counts': info['lap_counts']
-        }
+            }
 
-        # checkpoint check
+        # checkpoint check 
         current_checkpoint = self.checkpoints[self.current_checkpoint_idx]
-        distance_to_checkpoint = np.sqrt(
-            (info['poses_x'][0] - current_checkpoint[0])**2 + (info['poses_y'][0] - current_checkpoint[1])**2)
-
+        distance_to_checkpoint = np.sqrt((info['poses_x'][0] - current_checkpoint[0])**2 + (info['poses_y'][0] - current_checkpoint[1])**2)
+        
         # Check if the car has reached the current checkpoint
         if distance_to_checkpoint < 1:
             # If so, increment the checkpoint index
             self.current_checkpoint_idx += 1
-
+            
             # If the car has passed all the checkpoints, reset the environment
             if self.current_checkpoint_idx == len(self.checkpoints):
                 self.current_checkpoint_idx = 0
-
+        
         # times
         reward = 1 + self.current_checkpoint_idx*2
         self.current_time = self.current_time + self.timestep
-
+        
         # update data member
         self._update_state(info)
 
@@ -330,7 +320,7 @@ class F110Env(gym.Env):
         info['checkpoint_done'] = toggle_list
 
         # drl
-        obs = np.array(info['scans'][0], dtype=np.float32)
+        obs = np.array(info['scans'][0], dtype=np.float32) 
         obs = obs * (1-(-1)) / (30 - 0) - 1
         return obs, reward, done, info
 
@@ -360,8 +350,7 @@ class F110Env(gym.Env):
         self.start_xs = self.starts[:, 0]
         self.start_ys = self.starts[:, 1]
         self.start_thetas = self.starts[:, 2]
-        self.start_rot = np.array([[np.cos(-self.start_thetas[self.ego_idx]), -np.sin(-self.start_thetas[self.ego_idx])], [
-                                  np.sin(-self.start_thetas[self.ego_idx]), np.cos(-self.start_thetas[self.ego_idx])]])
+        self.start_rot = np.array([[np.cos(-self.start_thetas[self.ego_idx]), -np.sin(-self.start_thetas[self.ego_idx])], [np.sin(-self.start_thetas[self.ego_idx]), np.cos(-self.start_thetas[self.ego_idx])]])
 
         # call reset to simulator
         self.sim.reset(self.starts)
@@ -383,7 +372,7 @@ class F110Env(gym.Env):
             'poses_theta': info['poses_theta'],
             'lap_times': info['lap_times'],
             'lap_counts': info['lap_counts']
-        }
+            }
 
         obs = np.array(info['scans'][0], dtype=np.float32)
         obs = obs * (1-(-1)) / (30 - 0) - 1
@@ -405,7 +394,7 @@ class F110Env(gym.Env):
     def update_params(self, params, index=-1):
         """
         Updates the parameters used by simulation for vehicles
-
+        
         Args:
             params (dict): dictionary of parameters
             index (int, default=-1): if >= 0 then only update a specific agent's params
@@ -438,18 +427,18 @@ class F110Env(gym.Env):
             None
         """
         assert mode in ['human', 'human_fast']
-
+        
         if F110Env.renderer is None:
             # first call, initialize everything
             from f110_gym.envs.rendering import EnvRenderer
             F110Env.renderer = EnvRenderer(WINDOW_W, WINDOW_H)
             F110Env.renderer.update_map(self.map_name, self.map_ext)
-
+            
         F110Env.renderer.update_obs(self.render_obs)
 
         for render_callback in F110Env.render_callbacks:
             render_callback(F110Env.renderer)
-
+        
         F110Env.renderer.dispatch_events()
         F110Env.renderer.on_draw()
         F110Env.renderer.flip()

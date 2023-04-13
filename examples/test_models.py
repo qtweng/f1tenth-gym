@@ -6,6 +6,7 @@ import numpy as np
 from argparse import Namespace
 
 from numba import njit
+import tensorflow as tf
 
 from pyglet.gl import GL_POINTS
 
@@ -231,29 +232,103 @@ class PurePursuitPlanner:
             pose_theta, lookahead_point, position, lookahead_distance, self.wheelbase)
         speed = vgain * speed
 
-        return speed, steering_angle
+        return steering_angle, speed
 
 
-class FlippyPlanner:
-    """
-    Planner designed to exploit integration methods and dynamics.
-    For testing only. To observe this error, use single track dynamics for all velocities >0.1
-    """
+class DAVE:
+    def __init__(self):
+        print("Model")
+        model_name = './f1_tenth_model'
+        model = tf.keras.models.load_model(model_name+'.h5')
+        # try:
+        self.interpreter = tf.lite.Interpreter(
+            model_path=model_name+'.tflite')  # ,num_threads = args.ncpu)
+        # except ImportError:
+        #    print(f'Error in importing model: {ImportError}')
+        self.interpreter.allocate_tensors()
+        self.input_index = self.interpreter.get_input_details()[0]["index"]
+        self.output_details = self.interpreter.get_output_details()
 
-    def __init__(self, speed=1, flip_every=1, steer=2):
-        self.speed = speed
-        self.flip_every = flip_every
-        self.counter = 0
-        self.steer = steer
+    def callback(self, ldata):
+        eighth = int(len(ldata)/8)
+        ldata = np.array(ldata[eighth:-eighth]).astype(np.float32)
+        ldata = np.expand_dims(ldata, axis=-1)
+        ldata = np.expand_dims(ldata, axis=0)
+        lidar_data = ldata
+        return lidar_data
 
-    def render_waypoints(self, *args, **kwargs):
-        pass
+    def dnn_output(self, lidar_data):
+        if lidar_data is None:
+            return 0.
+        lidar_data = self.callback(lidar_data)
+        self.interpreter.set_tensor(self.input_index, lidar_data)
+        self.interpreter.invoke()
+        output = self.interpreter.get_tensor(self.output_details[0]['index'])
+        servo = output[0, 0]
+        speed = output[0, 1]
+        return servo, speed
 
-    def plan(self, *args, **kwargs):
-        if self.counter % self.flip_every == 0:
-            self.counter = 0
-            self.steer *= -1
-        return self.speed, self.steer
+
+class FTG:
+    def preprocess_lidar(self, ranges):
+        """ Any preprocessing of the LiDAR data can be done in this function.
+            Possible Improvements: smoothing of outliers in the data and placing
+            a cap on the maximum distance a point can be.
+        """
+        # remove quadrant of LiDAR directly behind us
+        eighth = int(len(ranges)/8)
+        return np.array(ranges[eighth:-eighth])
+
+    def get_angle(self, range_index, range_len):
+        """ Calculate the angle that corresponds to a given LiDAR point and
+            process it into a steering angle.
+            Possible improvements: smoothing of aggressive steering angles
+        """
+        lidar_angle = (range_index - (range_len/2)) * self.radians_per_point
+        steering_angle = np.clip(lidar_angle, np.radians(-90), np.radians(90))
+        return steering_angle
+
+    def process_lidar(self, ranges):
+        """ Run the disparity extender algorithm!
+            Possible improvements: varying the speed based on the
+            steering angle or the distance to the farthest point.
+        """
+        self.radians_per_point = (2*np.pi)/len(ranges)
+        proc_ranges = self.preprocess_lidar(ranges)
+        # obstacle correction
+
+        i = 0
+        value = 0
+        adj = 0
+        # scan both left to right and right to left
+        while i < len(proc_ranges) - 2:
+            if i >= len(proc_ranges) - 2:
+                break
+            if adj > 0:
+                proc_ranges[i] = value
+                adj -= 1
+            # check edge from small to large and extend
+            elif (proc_ranges[i + 1] - proc_ranges[i]) > 1:
+                # extend more if the distance is smaller
+                adj = int(200 / (proc_ranges[i] + 1))
+                value = proc_ranges[i]
+            i += 1
+        i = len(proc_ranges) - 1
+        while i > 1:
+            if i <= 1:
+                break
+            if adj > 0:
+                proc_ranges[i] = value
+                adj -= 1
+            # check edge from small to large and extend
+            elif (proc_ranges[i - 1] - proc_ranges[i]) > 1:
+                # extend more if the distance is smaller
+                adj = int(200 / (proc_ranges[i] + 1))
+                value = proc_ranges[i]
+            i -= 1
+        steering_angle = self.get_angle(proc_ranges.argmax(), len(proc_ranges))
+        speed = 2 + (0.5 * proc_ranges[proc_ranges.argmax()])
+        return steering_angle, speed
 
 
 def main():
@@ -268,8 +343,9 @@ def main():
         conf_dict = yaml.load(file, Loader=yaml.FullLoader)
     conf = Namespace(**conf_dict)
 
-    # FlippyPlanner(speed=0.2, flip_every=1, steer=10)
-    planner = PurePursuitPlanner(conf, (0.17145+0.15875))
+    # planner = PurePursuitPlanner(conf, (0.17145+0.15875)) #FlippyPlanner(speed=0.2, flip_every=1, steer=10)
+    ftg = FTG()
+    dave = DAVE()
 
     def render_callback(env_renderer):
         # custom extra drawing function
@@ -287,10 +363,10 @@ def main():
         e.top = top + 800
         e.bottom = bottom - 800
 
-        planner.render_waypoints(env_renderer)
+        # planner.render_waypoints(env_renderer)
 
     env = gym.make('f110_gym:f110-v0', map=conf.map_path, map_ext=conf.map_ext, num_agents=1, timestep=0.01, integrator=Integrator.RK4, starts=np.array([[conf.sx, conf.sy, conf.stheta]]), checkpoints=[
-                   (-35.28917215489346, 24.549809980247254), (-47.28584233778769, 7.649503337057018), (-34.33850049129457, -7.868348672295764), (-9.921228138520522, -7.54480924235594), (conf.sx, conf.sy)])
+                   (-1.043387605536935, 6.182245854975881), (-11.119006505707265, 12.196284277915074), (-35.28917215489346, 24.549809980247254), (-47.28584233778769, 7.649503337057018), (-34.33850049129457, -7.868348672295764), (-9.921228138520522, -7.54480924235594), (conf.sx, conf.sy)])
     env.add_render_callback(render_callback)
 
     obs = env.reset()
@@ -299,13 +375,12 @@ def main():
     laptime = 0.0
     start = time.time()
     done = False
-
-    obs, step_reward, done, info = env.step(np.array([[0, 0]]))
     while not done:
-        speed, steer = planner.plan(
-            info['poses_x'][0], info['poses_y'][0], info['poses_theta'][0], work['tlad'], work['vgain'])
-        print(info['poses_x'][0], info['poses_y'][0])
+        # actions[0] = planner.plan(obs['poses_x'][0], obs['poses_y'][0], obs['poses_theta'][0], work['tlad'], work['vgain'])
+        steer, speed = dave.dnn_output(obs)
+        print(steer, speed)
         obs, step_reward, done, info = env.step(np.array([[steer, speed]]))
+        print(step_reward, info['poses_x'][0], info['poses_y'][0])
         laptime += step_reward
         env.render(mode='human')
 
